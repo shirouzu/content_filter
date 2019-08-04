@@ -1,4 +1,4 @@
-#「Postfix キュー投入前コンテンツフィルタ」の実装例です。<br>
+# 「Postfix キュー投入前コンテンツフィルタ」の実装例です。<br>
    http://www.postfix-jp.info/trans-2.2/jhtml/SMTPD_PROXY_README.html
    
 # メリット
