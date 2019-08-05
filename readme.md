@@ -9,7 +9,7 @@
 仕組みの説明はこちらをご覧ください。
 http://www.postfix-jp.info/trans-2.2/jhtml/SMTPD_PROXY_README.html
 
-Postfix内部に入り込って、通信を中継します。
+Postfix内部に入り込んて、通信を中継します。
 そして「必要があれば」それを変更します。（man in the middle のようなもの）
 
 それを SPAMフィルタとして使うメリットは下記の通り。
@@ -28,26 +28,27 @@ Postfix内部に入り込って、通信を中継します。
 
 ## content_filter.py の使い方
 
- 1. 設定ファイル（spam_dat.py）を適宜、変更します。
+１．設定ファイル（spam_dat.py）を適宜、変更します。
 
- 2. content_filter.py を起動します。
+２．content_filter.py を起動します。
 
- 3. master.cf の smtp行を下記に書き換えます。
+３．master.cf の smtp行を下記に書き換えます。
 
     smtp      inet  n       -       n       -       20      smtpd
          -o smtpd_proxy_filter=127.0.0.1:60025
          -o smtpd_client_connection_count_limit=20
 
- 4. master.cf に下記を追記します。
+４．master.cf に下記を追記します。<br>
+
     127.0.0.1:60026 inet n  -       n       -        -      smtpd
             -o smtpd_authorized_xforward_hosts=127.0.0.0/8
             -o smtpd_recipient_restrictions=permit_mynetworks,reject
             -o smtpd_data_restrictions=permit_mynetworks
             -o mynetworks=127.0.0.0/8
 
- 5. Postfix をリスタートします。
+５．Postfix をリスタートします。
 
- 6. syslog(mail.log) の content_filter出力を確認します。
+６．syslog(mail.log) の content_filter出力を確認します。
 
 
 ## 設定ファイル(spam_dat.py)でのマッチ指定書式
