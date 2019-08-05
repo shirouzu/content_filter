@@ -23,10 +23,10 @@ Postfix内部に入り込って、通信を中継します。
 2. ホワイトリストによる除外指定が可能。
 3. syslog に SPAM判定されたメールの message-id 及び、マッチした正規表現リストを出力。
   
-# 無償・無保証で、ご自由にお使いください。
+## 無償・無保証で、ご自由にお使いください。
 　（SMTPにさほど詳しく無いので、フィードバック歓迎します）
 
-# content_filter.py の使い方
+## content_filter.py の使い方
 
  1. 設定ファイル（spam_dat.py）を適宜、変更します。
 
@@ -50,7 +50,7 @@ Postfix内部に入り込って、通信を中継します。
  6. syslog(mail.log) の content_filter出力を確認します。
 
 
-# 設定ファイル(spam_dat.py)でのマッチ指定書式
+## 設定ファイル(spam_dat.py)でのマッチ指定書式
  下記の書式で、ホワイトリスト定義(WHITE_DATA)とSPAM定義(CHECK_DATA)を指定。
 
     CHECK_DATA = [
