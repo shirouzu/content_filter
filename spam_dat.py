@@ -51,7 +51,10 @@ CHECK_DATA = [
 
 	# Bitcoin と BTC を含み、"copy and paste" / Ƿorn / ... /video のいずれかを含むもの
 	# （b64デコード後の）元メール文字コードに合わせる必要あり。
-	[rb'Bitcoin', rb'BTC', r'(copy and paste|Ƿorn|Ƿayment|camera|video)'.encode('utf8')],
+	[rb'Bitcoin',
+	 rb'BTC',
+	 # encode を使う場合、rb'' ではなくr'' を使う
+	 r'(copy and paste|Ƿorn|Ƿayment|camera|video)'.encode('utf8')],
 ]
 
 # SPAM判定されたメールのリターンコード
