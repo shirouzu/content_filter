@@ -76,7 +76,7 @@ G = Obj(
 	)
 
 # 正規表現の事前定義コンパイル
-MSGID_RE = re.compile(rb'(?<=Message-ID:)[ \t]*<.*>', re.IGNORECASE)
+MSGID_RE = re.compile(rb'(?<=^Message-ID:)[ \t]*<.*>', re.IGNORECASE)
 
 def bytes2str(s):
 	try:
@@ -158,7 +158,7 @@ def decode_mail(s):
 		# putlog("%s %s %s %s" % (str(head_phase), enc_mode, boundary, str(L)), True)
 
 		if not msg_id and head_phase:
-			m = MSGID_RE.search(L)
+			m = MSGID_RE.match(L)
 			if m:
 				msg_id = m.group().strip()
 
