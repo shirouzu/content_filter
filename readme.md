@@ -1,6 +1,7 @@
 # PositfixでのSPAM対策<br>（キュー投入前コンテンツフィルタ）
 白水啓章
 作成 2019/08/05
+更新 2019/08/07
 
 ## 概要
 「Postfix キュー投入前コンテンツフィルタ」の枠組みを利用したSPAM対策
@@ -53,7 +54,8 @@ Postfix内部に入り込んて、通信を中継します。
 
 
 ## 設定ファイル(spam_dat.py)でのマッチ指定書式
- 下記の書式で、ホワイトリスト定義(WHITE_DATA)とSPAM定義(CHECK_DATA)を指定。
+ 下記の書式で、ホワイトリスト定義(WHITE_HEAD/WHITE_DATA)とSPAM定義(CHECK_HEAD/CHECK_DATA)を指定。
+ （HEADはヘッダのみ検査、DATAはヘッダ＆ボディを検査）
 
     CHECK_DATA = [
       [ b'正規表現1_1', b'正規表現1_2,... ],  # ルール1

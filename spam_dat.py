@@ -36,6 +36,11 @@ DST_ADDR   = ("localhost", 60026)
 
 # これのどれかにマッチするメールは、無条件でSPAM除外判定
 #
+
+# ヘッダのみ検査
+WHITE_HEAD = [
+]
+# ヘッダ＆ボディを検査
 WHITE_DATA = [
 	# @ntt.co.jp かつ ecl.ntt.co.jp（メールサーバ想定）を含むメールは
 	# ホワイトリストに入れる
@@ -45,6 +50,11 @@ WHITE_DATA = [
 # （上記を除いて）どれかにマッチするメールはSPAM判定
 # （なお、base64/quoted-printable はデコードされるが、文字コードはそのまま）
 # （つまり、元メールが JIS であれば、"xxx".encode("iso-2022-jp")等で指定）
+
+# ヘッダのみ検査
+CHECK_HEAD = [
+]
+# ヘッダ＆ボディを検査
 CHECK_DATA = [
 	# href=, Sunglasses, Deal をすべて含む場合メールを SPAMに
 	[rb'href=', rb'Sunglasses', rb'Deal'],

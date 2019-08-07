@@ -33,7 +33,7 @@
 #   http://www.postfix-jp.info/trans-2.2/jhtml/SMTPD_PROXY_README.html
 #
 
-VER = "0.50"
+VER = "0.60"
 
 import sys
 import time
@@ -193,28 +193,44 @@ def is_match(data, re_list):
 
 #スパム判定
 def is_spam(data, msg_id, t):
+	head = data.split(b'\r\n\r\n')[0]
+
 	# ホワイトリスト検査
+	ret, re_i = is_match(head, G.WHITE_HEAD_RE)
+	if ret:
+		putlog(b'pass-white msg_id=%s WHITE_HEAD(%d) = [ %s ]\r\n' % (msg_id, re_i, b', '.join(G.WHITE_HEAD[re_i])))
+		return	False
+
 	ret, re_i = is_match(data, G.WHITE_RE)
 	if ret:
 		putlog(b'pass-white msg_id=%s WHITE_DATA(%d) = [ %s ]\r\n' % (msg_id, re_i, b', '.join(G.WHITE_DATA[re_i])))
 		return	False
 
 	# スパム検査
+	ret, re_i = is_match(head, G.CHECK_HEAD_RE)
+	if ret:
+		msg = b'SPAM is detected. msg_id=%s CHECK_HEAD(%d) = [ %s ]\r\n' % (msg_id, re_i, b', '.join(G.CHECK_HEAD[re_i]))
+		putlog(msg)
+		spam_log(msg, data, t)
+		return True
+
 	ret, re_i = is_match(data, G.CHECK_RE)
 	if ret:
 		msg = b'SPAM is detected. msg_id=%s CHECK_DATA(%d) = [ %s ]\r\n' % (msg_id, re_i, b', '.join(G.CHECK_DATA[re_i]))
 		putlog(msg)
-
-		if G.DBG >= 1:
-			fname = tmppath("spam_%s.txt" % time_to_str(t))
-			f = open(fname, "wb")
-			f.write(data)
-			f.write(msg)
+		spam_log(msg, data, t)
 		return True
 
 	putlog(b'pass msg_id=%s' % msg_id)
 	return	False
 
+#スパムデータ出力
+def spam_log(msg, data, t):
+	if G.DBG >= 1:
+		fname = tmppath("spam_%s.txt" % time_to_str(t))
+		f = open(fname, "wb")
+		f.write(data)
+		f.write(msg)
 
 class SpamError(Exception):
 	pass
@@ -367,7 +383,9 @@ def loadcheck_spam_dat():
 				obj = Obj(
 					SRC_ADDR     = spam_dat.SRC_ADDR,
 					DST_ADDR     = spam_dat.DST_ADDR,
+					WHITE_HEAD   = spam_dat.WHITE_HEAD,
 					WHITE_DATA   = spam_dat.WHITE_DATA,
+					CHECK_HEAD   = spam_dat.CHECK_HEAD,
 					CHECK_DATA   = spam_dat.CHECK_DATA,
 					TMP_DIR      = spam_dat.TMP_DIR,
 					DBG          = spam_dat.DBG,
@@ -375,6 +393,8 @@ def loadcheck_spam_dat():
 				)
 				obj.WHITE_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.WHITE_DATA]
 				obj.CHECK_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.CHECK_DATA]
+				obj.WHITE_HEAD_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.WHITE_HEAD]
+				obj.CHECK_HEAD_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.CHECK_HEAD]
 				list(map(lambda kv: G.__setattr__(kv[0], kv[1]), obj.__dict__.items()))
 
 				if G.STAT:
