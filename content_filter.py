@@ -33,7 +33,7 @@
 #   http://www.postfix-jp.info/trans-2.2/jhtml/SMTPD_PROXY_README.html
 #
 
-VER = "0.60"
+VER = "0.61"
 
 import sys
 import time
@@ -158,7 +158,7 @@ def decode_mail(s):
 		# putlog("%s %s %s %s" % (str(head_phase), enc_mode, boundary, str(L)), True)
 
 		if not msg_id and head_phase:
-			m = MSGID_RE.match(L)
+			m = MSGID_RE.search(L)
 			if m:
 				msg_id = m.group().strip()
 
