@@ -259,29 +259,28 @@ def data_proc(data, param):
 # フィルター動作コア部
 def content_filter_core(r, dst_addr, t):
 	try:
-		S, SS, RS, RR, D = range(5)
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		s.connect(dst_addr)
 		s_map = {
-			s.fileno(): {S:s, SS:True, RS:True, RR:r.fileno(), D:b""},
-			r.fileno(): {S:r, SS:True, RS:True, RR:s.fileno(), D:b""}
+			s.fileno(): Obj(Sock=s, SWait=True, RWait=True, RSockF=r.fileno(), Data=b""),
+			r.fileno(): Obj(Sock=r, SWait=True, RWait=True, RSockF=s.fileno(), Data=b"")
 		}
 		smtp_data = b''
 
 		param = Obj(rdata=b'', phase=HEADER_PHASE, is_local=False, t=t, msg_id=b'')
 
-		while s_map[s.fileno()][RS] and s_map[r.fileno()][RS]:
-			rfds = [x[S].fileno() for x in s_map.values() if x[RS]]
-			wfds = [x[S].fileno() for x in s_map.values() if x[D] and x[SS]]
+		while s_map[s.fileno()].RWait and s_map[r.fileno()].RWait:
+			rfds = [x.Sock.fileno() for x in s_map.values() if x.RWait]
+			wfds = [x.Sock.fileno() for x in s_map.values() if x.Data and x.SWait]
 
 			rl, wl, xl = select.select(rfds, wfds, [])
 
 			for i in rl:
-				data = s_map[i][S].recv(1000000)
+				data = s_map[i].Sock.recv(1000000)
 				if len(data) > 0:
-					s_map[s_map[i][RR]][D] += data
+					s_map[s_map[i].RSockF].Data += data
 				else:
-					s_map[i][RS] = False
+					s_map[i].RWait = False
 
 				if data:
 					rmode = (i == r.fileno())
@@ -290,11 +289,11 @@ def content_filter_core(r, dst_addr, t):
 						data_proc(data, param) # spamの場合、SpamError例外発生
 
 			for i in wl:
-				sent = s_map[i][S].send(s_map[i][D])
+				sent = s_map[i].Sock.send(s_map[i].Data)
 				if sent >= 0:
-					s_map[i][D] = s_map[i][D][sent:]
+					s_map[i].Data = s_map[i].Data[sent:]
 				else:
-					s_map[i][SS] = False
+					s_map[i].SWait = False
 
 		if G.DBG >= 2:
 			write_log(t, smtp_data, param.msg_id)
