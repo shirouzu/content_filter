@@ -29,7 +29,7 @@ Postfix内部に入り込んて、通信を中継します。
 
 ## content_filter.py の使い方
 
-１．設定ファイル（spam_dat.py）を適宜、変更します。
+１．spam_dat.py.sampleを参考に、設定ファイル（spam_dat.py）を適宜、作成/変更します。
 
 ２．content_filter.py を起動します。
 
