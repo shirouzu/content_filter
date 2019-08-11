@@ -70,4 +70,18 @@ Postfix内部に入り込んて、通信を中継します。
 
   それ以外の設定項目の説明は spam_dat.py を参照してください。
   
-  ## 
+## 運用後の改善
+ 運用中にSPAMメールが通過した時、spam_dat.py にマッチパターンを追加して対応しますが、検証に -f オプションが使えます。
+ DBGレベルを2以上に設定していると、全てのメールに関して、下記のような SMTP通信記録が残ります。
+
+    content_filter[18302]: smtp_log for msg_id= to /tmp/content_filter/smtp_20190811_134429_0.txt
+
+ これを使って、
+ 
+    content_filter -f /tmp/content_filter/smtp_20190811_134429_0.txt
+
+ などとすると、下記のように同じメールが届いた際に SPAM判定されるかどうかを事前判定できます。
+ 
+    SPAM判定される場合: SPAM is detected. msg_id=<xxxx> CHECK_HEAD(1) = [ regex_pattern1, regex_pattern2... ]
+
+    SPAM判定されない場合: pass msg_id=<xxxx>
