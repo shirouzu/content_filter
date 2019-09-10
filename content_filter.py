@@ -33,7 +33,7 @@
 #   http://www.postfix-jp.info/trans-2.2/jhtml/SMTPD_PROXY_README.html
 #
 
-VER = "0.61"
+VER = "0.62"
 
 import sys
 import time
@@ -405,6 +405,17 @@ def loadcheck_spam_dat():
 				putlog(msg)
 		time.sleep(2)
 
+def load_smtpfile(f):
+	ll = []
+	for L in open(f, "rb").readlines():
+		if L[:3] == b"S: ":
+			continue
+		elif L[:3] == b"R: ":
+			ll.append(L[3:])
+		else:
+			ll.append(L)
+	open("/tmp/a.txt", "wb").write(b"".join(ll))
+	return	b"".join(ll)
 
 # フィルターメイン
 def content_filter_server():
@@ -420,7 +431,7 @@ def content_filter_server():
 			continue
 		elif key == "f":
 			t = Obj(t=0, idx=0)  # spam_0.txt / sdec_0.txt などが作成される
-			dec_data, msg_id = decode_mail(open(val, "rb").read())
+			dec_data, msg_id = decode_mail(load_smtpfile(val))
 			open(tmppath("sdec_%s.txt" % time_to_str(t)), "wb").write(dec_data)
 			is_spam(dec_data, msg_id, t)
 			return
