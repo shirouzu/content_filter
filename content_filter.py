@@ -33,7 +33,7 @@
 #   http://www.postfix-jp.info/trans-2.2/jhtml/SMTPD_PROXY_README.html
 #
 
-VER = "0.62"
+VER = "0.63"
 
 import sys
 import time
@@ -77,6 +77,8 @@ G = Obj(
 
 # 正規表現の事前定義コンパイル
 MSGID_RE = re.compile(rb'(?<=^Message-ID:)[ \t]*<.*>', re.IGNORECASE)
+XFORWARD_RE = re.compile(rb'^XFORWARD[^\n]+\n', re.IGNORECASE)
+RECEIVESPF_RE = re.compile(rb'^Received-SPF:', re.IGNORECASE)
 
 def bytes2str(s):
 	try:
@@ -91,7 +93,7 @@ def putlog(s, only_print=False):
 		if type(s) != str:
 			s = bytes2str(s)
 		if not only_print:
-			syslog.syslog(syslog.LOG_INFO, s.strip('\r\n'))
+			syslog.syslog(s.strip('\r\n'))
 		print(s)
 	except:
 		pass
@@ -100,9 +102,18 @@ def time_to_str(t):
 	if not t or t.t == 0: return "0"
 	return	time.strftime("%Y%m%d_%H%M%S", time.localtime(t.t)) + ("_%d" % t.idx)
 
+def smtp_fname(t):
+	return "smtp_%s.txt" % time_to_str(t)
+
+def spam_fname(t):
+	return "spam_%s.txt" % time_to_str(t)
+
+def sdec_fname(t):
+	return "sdec_%s.txt" % time_to_str(t)
+
 # ログファイル出力(& syslog)
 def write_log(t, smtp_data, msg_id):
-	fname = tmppath("smtp_%s.txt" % time_to_str(t))
+	fname = tmppath(smtp_fname(t))
 	putlog("smtp_log for msg_id=%s to %s" % (bytes2str(msg_id), fname))
 	f = open(fname, "wb")
 	f.write(smtp_data)
@@ -163,6 +174,10 @@ def decode_mail(s):
 				msg_id = m.group().strip()
 
 		try:
+			# 分割されたheader行の連結
+			if head_phase and len(L) > 0 and b'\t '.find(L[0:1]) >= 0 and len(d) > 0 and d[-1][-1:] == b'\r':
+				d[-1] = d[-1][:-1]
+
 			if enc_mode == STD_ENC or head_phase or L == b'\r':
 				d.append(L)
 			elif enc_mode == B64_ENC:
@@ -180,54 +195,65 @@ def decode_mail(s):
 	msg = msg.replace(b'\r', b'\r\n')
 	return	msg, msg_id
 
+def strip_ln(s):
+	return s.replace(b'\r\n', b' ').replace(b'\n', b' ').replace(b'\r', b' ')
+
 # 正規表現リストのマッチ検査
 def is_match(data, re_list):
 	for re_i, ll in enumerate(re_list):
+		m = []
 		for L in ll:
-			if not L.search(data):
+			r = L.search(data)
+			if r:
+				m.append(strip_ln(r.group(0)[:100]))
+			else:
 				break
 		else:
-			return	True, re_i
+			return	True, re_i, b", ".join(m)
 
-	return	False, -1
+	return	False, -1, b""
 
 #スパム判定
 def is_spam(data, msg_id, t):
 	head = data.split(b'\r\n\r\n')[0]
 
 	# ホワイトリスト検査
-	ret, re_i = is_match(head, G.WHITE_HEAD_RE)
+	ret, re_i, ms = is_match(head, G.WHITE_HEAD_RE)
+
+	sdecfn = sdec_fname(t).encode("utf8")
+	spamfn = spam_fname(t).encode("utf8")
+
 	if ret:
-		putlog(b'pass-white msg_id=%s WHITE_HEAD(%d) = [ %s ]\r\n' % (msg_id, re_i, b', '.join(G.WHITE_HEAD[re_i])))
+		putlog(b'pass-white f=%s msg_id=%s WHITE_HEAD(%d) = [ %.100s ] m=<%s>\r\n' % (sdecfn, msg_id, re_i, strip_ln(b', '.join(G.WHITE_HEAD[re_i])), ms))
 		return	False
 
-	ret, re_i = is_match(data, G.WHITE_RE)
+	ret, re_i, ms = is_match(data, G.WHITE_RE)
 	if ret:
-		putlog(b'pass-white msg_id=%s WHITE_DATA(%d) = [ %s ]\r\n' % (msg_id, re_i, b', '.join(G.WHITE_DATA[re_i])))
+		putlog(b'pass-white f=%s msg_id=%s WHITE_DATA(%d) = [ %.100s ] m=<%s>\r\n' % (sdecfn, msg_id, re_i, strip_ln(b', '.join(G.WHITE_DATA[re_i])), ms))
 		return	False
 
 	# スパム検査
-	ret, re_i = is_match(head, G.CHECK_HEAD_RE)
+	ret, re_i, ms = is_match(head, G.CHECK_HEAD_RE)
 	if ret:
-		msg = b'SPAM is detected. msg_id=%s CHECK_HEAD(%d) = [ %s ]\r\n' % (msg_id, re_i, b', '.join(G.CHECK_HEAD[re_i]))
+		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_HEAD(%d) = [ %.100s ] m=<%s>\r\n' % (spamfn, msg_id, re_i, strip_ln(b', '.join(G.CHECK_HEAD[re_i])), ms)
 		putlog(msg)
 		spam_log(msg, data, t)
 		return True
 
-	ret, re_i = is_match(data, G.CHECK_RE)
+	ret, re_i, ms = is_match(data, G.CHECK_RE)
 	if ret:
-		msg = b'SPAM is detected. msg_id=%s CHECK_DATA(%d) = [ %s ]\r\n' % (msg_id, re_i, b', '.join(G.CHECK_DATA[re_i]))
+		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_DATA(%d) = [ %.100s ] m=<%s>\r\n' % (spamfn, msg_id, re_i, strip_ln(b', '.join(G.CHECK_DATA[re_i])), ms)
 		putlog(msg)
 		spam_log(msg, data, t)
 		return True
 
-	putlog(b'pass msg_id=%s' % msg_id)
+	putlog(b'pass f=%s msg_id=%s' % (sdecfn, msg_id))
 	return	False
 
 #スパムデータ出力
 def spam_log(msg, data, t):
 	if G.DBG >= 1:
-		fname = tmppath("spam_%s.txt" % time_to_str(t))
+		fname = tmppath(spam_fname(t))
 		f = open(fname, "wb")
 		f.write(data)
 		f.write(msg)
@@ -254,7 +280,22 @@ def data_proc(data, param):
 			if is_spam(dec_data, param.msg_id, param.t):
 				raise SpamError()
 			elif G.DBG >= 2:
-				open(tmppath("sdec_%s.txt" % time_to_str(param.t)), "wb").write(dec_data)
+				open(tmppath(sdec_fname(param.t)), "wb").write(dec_data)
+
+def rewrite_filter(data, param):
+	if not param.xforward:
+		m = XFORWARD_RE.search(data)
+		if m:
+			param.xforward = m.group().strip()
+		return data
+
+	if param.xforward and param.need_rewrite:
+		m = RECEIVESPF_RE.search(data)
+		if m:
+			data = b"X-Forward: " + param.xforward[9:] + b'\r\n' + data
+			param.need_rewrite = False
+
+	return data
 
 # フィルター動作コア部
 def content_filter_core(r, dst_addr, t):
@@ -267,7 +308,8 @@ def content_filter_core(r, dst_addr, t):
 		}
 		smtp_data = b''
 
-		param = Obj(rdata=b'', phase=HEADER_PHASE, is_local=False, t=t, msg_id=b'')
+		param = Obj(rdata=b'', phase=HEADER_PHASE, is_local=False, t=t, msg_id=b'',
+					xforward=b'', need_rewrite=True)
 
 		while s_map[s.fileno()].RWait and s_map[r.fileno()].RWait:
 			rfds = [x.Sock.fileno() for x in s_map.values() if x.RWait]
@@ -278,6 +320,8 @@ def content_filter_core(r, dst_addr, t):
 			for i in rl:
 				data = s_map[i].Sock.recv(1000000)
 				if len(data) > 0:
+					if param.need_rewrite:
+						data = rewrite_filter(data, param)
 					s_map[s_map[i].RSockF].Data += data
 				else:
 					s_map[i].RWait = False
@@ -414,7 +458,7 @@ def load_smtpfile(f):
 			ll.append(L[3:])
 		else:
 			ll.append(L)
-	open("/tmp/a.txt", "wb").write(b"".join(ll))
+	#open("/tmp/a.txt", "wb").write(b"".join(ll))
 	return	b"".join(ll)
 
 # フィルターメイン
@@ -431,8 +475,12 @@ def content_filter_server():
 			continue
 		elif key == "f":
 			t = Obj(t=0, idx=0)  # spam_0.txt / sdec_0.txt などが作成される
+			if val[:5] == 'spam_' or val[:5] == 'sdec_':
+				val = 'smtp_' + val[5:]
+			if len(val) > 10 and val.find(".") == -1:
+				val += ".txt"
 			dec_data, msg_id = decode_mail(load_smtpfile(val))
-			open(tmppath("sdec_%s.txt" % time_to_str(t)), "wb").write(dec_data)
+			open(sdec_fname(t), "wb").write(dec_data)
 			is_spam(dec_data, msg_id, t)
 			return
 
