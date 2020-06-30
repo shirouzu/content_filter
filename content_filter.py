@@ -50,7 +50,9 @@ import base64
 import quopri
 import importlib
 import getopt
+import email.header
 
+sys.path.append("/etc/postfix/")
 import spam_dat
 
 # 汎用オブジェクトクラス
@@ -73,12 +75,16 @@ G = Obj(
 
 		# これは例外（スレッド数カウンタ）
 		THR_CNT			= 0,
+		IS_DAEMON		= True,
 	)
 
 # 正規表現の事前定義コンパイル
 MSGID_RE = re.compile(rb'(?<=^Message-ID:)[ \t]*<.*>', re.IGNORECASE)
 XFORWARD_RE = re.compile(rb'^XFORWARD[^\n]+\n', re.IGNORECASE)
 RECEIVESPF_RE = re.compile(rb'^Received-SPF:', re.IGNORECASE)
+SUBJECT_RE = re.compile(rb'Subject: ([^\r\n]+)')
+FROM_RE    = re.compile(rb'From: ([^\r\n]+)')
+TO_RE      = re.compile(rb'To: ([^\r\n]+)')
 
 def bytes2str(s):
 	try:
@@ -92,7 +98,7 @@ def putlog(s, only_print=False):
 	try:
 		if type(s) != str:
 			s = bytes2str(s)
-		if not only_print:
+		if not only_print and G.IS_DAEMON:
 			syslog.syslog(s.strip('\r\n'))
 		print(s)
 	except:
@@ -145,9 +151,9 @@ def check_head(L, head_phase, enc_mode, boundary):
 		elif L == b'\r' or L == b'':
 			head_phase = False
 		elif L[:len(enc_key)] == enc_key:
-			if L.find(b'quoted-printable') >= 0:
+			if L.lower().find(b'quoted-printable') >= 0:
 				enc_mode = QP_ENC
-			elif L.find(b'base64') >= 0:
+			elif L.lower().find(b'base64') >= 0:
 				enc_mode = B64_ENC
 			else:
 				enc_mode = STD_ENC
@@ -213,6 +219,26 @@ def is_match(data, re_list):
 
 	return	False, -1, b""
 
+def get_re_data(re_obj, data):
+	ret = b''
+	m = re_obj.search(data)
+	if m:
+		ret = m.groups()[0]
+		try:
+			dd = email.header.decode_header(ret.decode("utf8"))
+			ss = b""
+			for s, enc in dd:
+				if enc:
+					ss += s.decode(enc).encode("utf8")
+				else:
+					ss += s
+			ret = ss
+		except Exception as e:
+			# print("exp", e)
+			pass
+	return ret
+
+
 #スパム判定
 def is_spam(data, msg_id, t):
 	head = data.split(b'\r\n\r\n')[0]
@@ -235,14 +261,22 @@ def is_spam(data, msg_id, t):
 	# スパム検査
 	ret, re_i, ms = is_match(head, G.CHECK_HEAD_RE)
 	if ret:
-		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_HEAD(%d) = [ %.100s ] m=<%s>\r\n' % (spamfn, msg_id, re_i, strip_ln(b', '.join(G.CHECK_HEAD[re_i])), ms)
+		subject = get_re_data(SUBJECT_RE, data)
+		from_s  = get_re_data(FROM_RE, data)
+		to_s    = get_re_data(TO_RE, data)
+		strip_s = strip_ln(b', '.join(G.CHECK_HEAD[re_i]))
+		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_HEAD(%d) = [ %.100s ] m=<%s> from=<%s> to=<%s> s=<%s>\r\n' % (spamfn, msg_id, re_i, strip_s, ms, from_s, to_s, subject)
 		putlog(msg)
 		spam_log(msg, data, t)
 		return True
 
 	ret, re_i, ms = is_match(data, G.CHECK_RE)
 	if ret:
-		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_DATA(%d) = [ %.100s ] m=<%s>\r\n' % (spamfn, msg_id, re_i, strip_ln(b', '.join(G.CHECK_DATA[re_i])), ms)
+		subject = get_re_data(SUBJECT_RE, data)
+		from_s  = get_re_data(FROM_RE, data)
+		to_s    = get_re_data(TO_RE, data)
+		strip_s = strip_ln(b', '.join(G.CHECK_DATA[re_i]))
+		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_DATA(%d) = [ %.100s ] m=<%s> from=<%s> to=<%s> s=<%s>\r\n' % (spamfn, msg_id, re_i, strip_s, ms, from_s, to_s, subject)
 		putlog(msg)
 		spam_log(msg, data, t)
 		return True
@@ -339,7 +373,7 @@ def content_filter_core(r, dst_addr, t):
 				else:
 					s_map[i].SWait = False
 
-		if G.DBG >= 2:
+		if G.DBG >= 2 and not param.is_local:
 			write_log(t, smtp_data, param.msg_id)
 
 	except SpamError:
@@ -463,7 +497,7 @@ def load_smtpfile(f):
 
 # フィルターメイン
 def content_filter_server():
-	is_daemon = True
+	G.IS_DAEMON = True
 
 	loadcheck_spam_dat()
 
@@ -471,9 +505,10 @@ def content_filter_server():
 	for key, val in optlist:
 		key = key.replace("-", "")
 		if key == "d":
-			is_daemon = False
+			G.IS_DAEMON = False
 			continue
 		elif key == "f":
+			G.IS_DAEMON = False
 			t = Obj(t=0, idx=0)  # spam_0.txt / sdec_0.txt などが作成される
 			if val[:5] == 'spam_' or val[:5] == 'sdec_':
 				val = 'smtp_' + val[5:]
@@ -484,7 +519,8 @@ def content_filter_server():
 			is_spam(dec_data, msg_id, t)
 			return
 
-	syslog.openlog("content_filter", syslog.LOG_PID, syslog.LOG_MAIL)
+	if G.IS_DAEMON:
+		syslog.openlog("content_filter", syslog.LOG_PID, syslog.LOG_MAIL)
 	putlog("content_filter ver%s started." % VER)
 
 	def sig_func(k, s):
@@ -492,7 +528,7 @@ def content_filter_server():
 	signal.signal(signal.SIGTERM, sig_func)
 	signal.signal(signal.SIGINT,  sig_func)
 
-	if is_daemon:
+	if G.IS_DAEMON:
 		daemonize()
 	_thread.start_new_thread(content_filter, (G.SRC_ADDR, G.DST_ADDR))
 
