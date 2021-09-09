@@ -33,7 +33,7 @@
 #   http://www.postfix-jp.info/trans-2.2/jhtml/SMTPD_PROXY_README.html
 #
 
-VER = "0.63"
+VER = "0.64"
 
 import sys
 import time
@@ -199,6 +199,14 @@ def decode_mail(s):
 	msg = b''.join(d)
 	msg = msg.replace(b'\n', b'')
 	msg = msg.replace(b'\r', b'\r\n')
+
+	head, body = msg.split(b'\r\n\r\n', 1)
+
+	for r in [SUBJECT_RE, FROM_RE, TO_RE]:
+		head = replace_re_data(r, head)
+
+	msg = head + body
+
 	return	msg, msg_id
 
 def strip_ln(s):
@@ -218,6 +226,25 @@ def is_match(data, re_list):
 			return	True, re_i, b", ".join(m)
 
 	return	False, -1, b""
+
+def replace_re_data(re_obj, data):
+	ret = b''
+	m = re_obj.search(data)
+	if m:
+		targ = m[0]
+		try:
+			dd = email.header.decode_header(targ.decode("utf8"))
+			ss = b""
+			for s, enc in dd:
+				if enc:
+					ss += s.decode(enc).encode("utf8")
+				else:
+					ss += s
+			data = data[:m.start()] + ss + data[m.end():]
+		except Exception as e:
+			# print("exp", e)
+			pass
+	return data
 
 def get_re_data(re_obj, data):
 	ret = b''
