@@ -33,7 +33,7 @@
 #   http://www.postfix-jp.info/trans-2.2/jhtml/SMTPD_PROXY_README.html
 #
 
-VER = "0.64"
+VER = "0.65"
 
 import sys
 import time
@@ -76,6 +76,7 @@ G = Obj(
 		# これは例外（スレッド数カウンタ）
 		THR_CNT			= 0,
 		IS_DAEMON		= True,
+		VERBOSE			= False,
 	)
 
 # 正規表現の事前定義コンパイル
@@ -275,14 +276,15 @@ def is_spam(data, msg_id, t):
 
 	sdecfn = sdec_fname(t).encode("utf8")
 	spamfn = spam_fname(t).encode("utf8")
+	lim_num = G.VERBOSE and 1000 or 100
 
 	if ret:
-		putlog(b'pass-white f=%s msg_id=%s WHITE_HEAD(%d) = [ %.100s ] m=<%s>\r\n' % (sdecfn, msg_id, re_i, strip_ln(b', '.join(G.WHITE_HEAD[re_i])), ms))
+		putlog(b'pass-white f=%s msg_id=%s WHITE_HEAD(%d) = [ %.*s ] m=<%s>\r\n' % (sdecfn, msg_id, re_i, lim_num, strip_ln(b', '.join(G.WHITE_HEAD[re_i])), ms))
 		return	False
 
 	ret, re_i, ms = is_match(data, G.WHITE_RE)
 	if ret:
-		putlog(b'pass-white f=%s msg_id=%s WHITE_DATA(%d) = [ %.100s ] m=<%s>\r\n' % (sdecfn, msg_id, re_i, strip_ln(b', '.join(G.WHITE_DATA[re_i])), ms))
+		putlog(b'pass-white f=%s msg_id=%s WHITE_DATA(%d) = [ %.*s ] m=<%s>\r\n' % (sdecfn, msg_id, re_i, lim_num, strip_ln(b', '.join(G.WHITE_DATA[re_i])), ms))
 		return	False
 
 	# スパム検査
@@ -292,7 +294,7 @@ def is_spam(data, msg_id, t):
 		from_s  = get_re_data(FROM_RE, data)
 		to_s    = get_re_data(TO_RE, data)
 		strip_s = strip_ln(b', '.join(G.CHECK_HEAD[re_i]))
-		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_HEAD(%d) = [ %.100s ] m=<%s> from=<%s> to=<%s> s=<%s>\r\n' % (spamfn, msg_id, re_i, strip_s, ms, from_s, to_s, subject)
+		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_HEAD(%d) = [ %.*s ] m=<%s> from=<%s> to=<%s> s=<%s>\r\n' % (spamfn, msg_id, re_i, lim_num, strip_s, ms, from_s, to_s, subject)
 		putlog(msg)
 		spam_log(msg, data, t)
 		return True
@@ -303,7 +305,7 @@ def is_spam(data, msg_id, t):
 		from_s  = get_re_data(FROM_RE, data)
 		to_s    = get_re_data(TO_RE, data)
 		strip_s = strip_ln(b', '.join(G.CHECK_DATA[re_i]))
-		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_DATA(%d) = [ %.100s ] m=<%s> from=<%s> to=<%s> s=<%s>\r\n' % (spamfn, msg_id, re_i, strip_s, ms, from_s, to_s, subject)
+		msg = b'SPAM is detected. f=%s msg_id=%s CHECK_DATA(%d) = [ %.*s ] m=<%s> from=<%s> to=<%s> s=<%s>\r\n' % (spamfn, msg_id, re_i, lim_num, strip_s, ms, from_s, to_s, subject)
 		putlog(msg)
 		spam_log(msg, data, t)
 		return True
@@ -353,7 +355,8 @@ def rewrite_filter(data, param):
 	if param.xforward and param.need_rewrite:
 		m = RECEIVESPF_RE.search(data)
 		if m:
-			data = b"X-Forward: " + param.xforward[9:] + b'\r\n' + data
+			data = b"X-Forward: %s file=%s\r\n%s" % (
+				param.xforward[9:], smtp_fname(param.t).encode("utf8"), data)
 			param.need_rewrite = False
 
 	return data
@@ -528,11 +531,14 @@ def content_filter_server():
 
 	loadcheck_spam_dat()
 
-	optlist, args = getopt.getopt(sys.argv[1:], "df:")
+	optlist, args = getopt.getopt(sys.argv[1:], "vdf:")
 	for key, val in optlist:
 		key = key.replace("-", "")
 		if key == "d":
 			G.IS_DAEMON = False
+			continue
+		if key == "v":
+			G.VERBOSE = True
 			continue
 		elif key == "f":
 			G.IS_DAEMON = False
