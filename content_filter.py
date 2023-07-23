@@ -33,7 +33,7 @@
 #   http://www.postfix-jp.info/trans-2.2/jhtml/SMTPD_PROXY_README.html
 #
 
-VER = "0.65"
+VER = "0.70"
 
 import sys
 import time
@@ -68,7 +68,10 @@ HEADER_PHASE, DATA_PHASE = range(2)
 
 # グローバル設定データ類（loadcheck_spam_dat で設定）
 G = Obj(
+        WHITE_HEAD_RE   = None,
+        PRECHK_HEAD_RE  = None,
         WHITE_RE        = None,
+        CHECK_HEAD_RE   = None,
         CHECK_RE        = None,
         DBG             = None,
         TMP_DIR         = None,
@@ -277,28 +280,61 @@ def get_re_data(re_obj, data):
             pass
     return ret
 
+# Received-SPF: は最初の1つのみ有効に
+def dedup_spf_header(head_data):
+    headers = head_data.split(b'\r\n')
+    spf_key = b'Received-SPF:'.lower()
+    is_spf = False
+
+    lines = []
+    for L in headers:
+        if L[:len(spf_key)].lower() == spf_key:
+            if is_spf:
+                continue
+            is_spf = True
+        lines.append(L)
+
+    return b"\r\n".join(lines)
 
 #スパム判定
-def is_spam(data, msg_id, t):
+def is_spam(data, msg_id, t, fname=None):
     head = data.split(b'\r\n\r\n')[0]
+    head = dedup_spf_header(head)
 
-    # ホワイトリスト検査
+    # ホワイトリスト検査(head)
     ret, re_i, ms = is_match(head, G.WHITE_HEAD_RE)
 
-    sdecfn = sdec_fname(t).encode("utf8")
-    spamfn = spam_fname(t).encode("utf8")
+    if fname:
+        sdecfn = fname
+        spamfn = fname
+    else:
+        sdecfn = sdec_fname(t).encode("utf8")
+        spamfn = spam_fname(t).encode("utf8")
     lim_num = G.VERBOSE and 1000 or 100
 
     if ret:
         putlog(b'pass-white f=%s msg_id=%s WHITE_HEAD(%d) = [ %.*s ] m=<%s>\r\n' % (sdecfn, msg_id, re_i, lim_num, strip_ln(b', '.join(G.WHITE_HEAD[re_i])), ms))
         return  False
 
+    # スパム検査(prehead)
+    ret, re_i, ms = is_match(head, G.PRECHK_HEAD_RE)
+    if ret:
+        subject = get_re_data(SUBJECT_RE, data)
+        from_s  = get_re_data(FROM_RE, data)
+        to_s    = get_re_data(TO_RE, data)
+        strip_s = strip_ln(b', '.join(G.PRECHK_HEAD[re_i]))
+        msg = b'SPAM is detected. f=%s msg_id=%s PRECHK_HEAD(%d) = [ %.*s ] m=<%s> from=<%s> to=<%s> s=<%s>\r\n' % (spamfn, msg_id, re_i, lim_num, strip_s, ms, from_s, to_s, subject)
+        putlog(msg)
+        spam_log(msg, data, t)
+        return True
+
+    # ホワイトリスト検査(body)
     ret, re_i, ms = is_match(data, G.WHITE_RE)
     if ret:
         putlog(b'pass-white f=%s msg_id=%s WHITE_DATA(%d) = [ %.*s ] m=<%s>\r\n' % (sdecfn, msg_id, re_i, lim_num, strip_ln(b', '.join(G.WHITE_DATA[re_i])), ms))
         return  False
 
-    # スパム検査
+    # スパム検査(head)
     ret, re_i, ms = is_match(head, G.CHECK_HEAD_RE)
     if ret:
         subject = get_re_data(SUBJECT_RE, data)
@@ -310,6 +346,7 @@ def is_spam(data, msg_id, t):
         spam_log(msg, data, t)
         return True
 
+    # スパム検査(body)
     ret, re_i, ms = is_match(data, G.CHECK_RE)
     if ret:
         subject = get_re_data(SUBJECT_RE, data)
@@ -521,6 +558,7 @@ def loadcheck_spam_dat():
                     SRC_ADDR     = spam_dat.SRC_ADDR,
                     DST_ADDR     = spam_dat.DST_ADDR,
                     WHITE_HEAD   = str_to_byte(spam_dat.WHITE_HEAD),
+                    PRECHK_HEAD  = str_to_byte(spam_dat.PRECHK_HEAD),
                     WHITE_DATA   = str_to_byte(spam_dat.WHITE_DATA),
                     CHECK_HEAD   = str_to_byte(spam_dat.CHECK_HEAD),
                     CHECK_DATA   = str_to_byte(spam_dat.CHECK_DATA),
@@ -528,11 +566,12 @@ def loadcheck_spam_dat():
                     DBG          = spam_dat.DBG,
                     SPAM_ERRCODE = spam_dat.SPAM_ERRCODE,
                 )
-                obj.WHITE_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.WHITE_DATA]
-                obj.CHECK_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.CHECK_DATA]
                 obj.WHITE_HEAD_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.WHITE_HEAD]
+                obj.PRECHK_HEAD_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.PRECHK_HEAD]
+                obj.WHITE_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.WHITE_DATA]
                 obj.CHECK_HEAD_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.CHECK_HEAD]
-                check_allmatch([obj.WHITE_RE, obj.CHECK_RE, obj.WHITE_HEAD_RE, obj.CHECK_HEAD_RE])
+                obj.CHECK_RE = [[re.compile(x, re.IGNORECASE) for x in y] for y in obj.CHECK_DATA]
+                check_allmatch([obj.WHITE_HEAD_RE, obj.PRECHK_HEAD_RE, obj.WHITE_RE, obj.CHECK_HEAD_RE, obj.CHECK_RE])
 
                 list(map(lambda kv: G.__setattr__(kv[0], kv[1]), obj.__dict__.items()))
 
@@ -576,13 +615,13 @@ def content_filter_server():
             G.IS_DAEMON = False
             for val in args:
                 t = Obj(t=0, idx=0)  # spam_0.txt / sdec_0.txt などが作成される
-                if val[:5] == 'spam_' or val[:5] == 'sdec_':
-                    val = 'smtp_' + val[5:]
                 if len(val) > 10 and val.find(".") == -1:
                     val += ".txt"
-                dec_data, msg_id = decode_mail(load_smtpfile(val))
-                open(logpath(sdec_fname(t), is_time_zero(t)), "wb").write(dec_data)
-                is_spam(dec_data, msg_id, t)
+                targ = val.replace("spam_", "smtp_").replace("sdec_", "smtp_")
+                dec_data, msg_id = decode_mail(load_smtpfile(targ))
+                if len(args) == 1:
+                    open(logpath(sdec_fname(t), is_time_zero(t)), "wb").write(dec_data)
+                is_spam(dec_data, msg_id, t, fname=val.encode("utf8"))
             return
 
     if G.IS_DAEMON:
