@@ -37,10 +37,15 @@ DST_ADDR   = ("localhost", 60026)
 # これのどれかにマッチするメールは、無条件でSPAM除外判定
 #
 
-# ヘッダのみ検査
+# ヘッダのみ検査（Pass用）
 WHITE_HEAD = [
 ]
-# ヘッダ＆ボディを検査
+
+# ヘッダのみ検査（Reject用。WHITE_DATAよりも優先したい場合のみ）
+PRECHK_HEAD = [
+]
+
+# ヘッダ＆ボディを検査（Pass用）
 WHITE_DATA = [
 	# @ntt.co.jp かつ ecl.ntt.co.jp（メールサーバ想定）を含むメールは
 	# ホワイトリストに入れる
@@ -51,10 +56,11 @@ WHITE_DATA = [
 # （なお、base64/quoted-printable はデコードされるが、文字コードはそのまま）
 # （つまり、元メールが JIS であれば、"xxx".encode("iso-2022-jp")等で指定）
 
-# ヘッダのみ検査
+# ヘッダのみ検査（Reject用）
 CHECK_HEAD = [
 ]
-# ヘッダ＆ボディを検査
+
+# ヘッダ＆ボディを検査（Reject用）
 CHECK_DATA = [
 	# href=, Sunglasses, Deal をすべて含む場合メールを SPAMに
 	[rb'href=', rb'Sunglasses', rb'Deal'],
@@ -88,4 +94,10 @@ DBG = 1
 # 
 TMP_DIR = "/tmp/content_filter/"
 
+
+# ヘッダ書き換え（詐称ヘッダをリネーム）
+RENAME_HEADERS = [
+#	["Received-SPF:", "Received-SPF-CF:"],
+#	["Authentication-Results:", "Authentication-Results-CF:"],
+]
 
